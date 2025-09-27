@@ -4,8 +4,11 @@ import { colors, typography, spacing, shadows } from '../../theme/tokens';
 import { HabitCard } from '../../components/HabitCard';
 import { GlassCard } from '../../components/GlassCard';
 import { AddHabitModal } from '../../components/AddHabitModal';
-import { fetchDailyTip, DailyTip, shouldFetchNewTip, markTipAsFetched } from '../../lib/fastrouter';
+import { PrimaryButton } from '../../components/PrimaryButton';
+import { fetchDailyTip, DailyTip, shouldFetchNewTip, markTipAsFetched, generateHabitPlan, HabitPlanItem } from '../../lib/fastrouter';
 import { supabase, Habit } from '../../lib/supabase';
+import { useEffect as useReactEffect, useRef } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 
 function HabitsScreen() {
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -19,12 +22,25 @@ function HabitsScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addingHabit, setAddingHabit] = useState(false);
   const [tipLoading, setTipLoading] = useState(false);
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+
+  const params = useLocalSearchParams<{ goal?: string }>();
+  const hasHandledGoalParamRef = useRef(false);
 
   // Fetch user's habits from Supabase
   useEffect(() => {
     fetchHabits();
     fetchDailyTipData();
   }, []);
+
+  // If navigated here with a goal param, auto-generate and save plan once
+  useReactEffect(() => {
+    const goal = typeof params.goal === 'string' ? params.goal.trim() : '';
+    if (goal && !hasHandledGoalParamRef.current) {
+      hasHandledGoalParamRef.current = true;
+      handleGenerateAndSaveHabits(goal);
+    }
+  }, [params.goal]);
 
   const fetchDailyTipData = async () => {
     try {
@@ -71,7 +87,7 @@ function HabitsScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const habit = habits.find(h => h.id === habitId);
+      const habit = habits.find((h: Habit) => h.id === habitId);
       if (!habit) return;
 
       const { error } = await supabase
@@ -89,8 +105,8 @@ function HabitsScreen() {
       }
 
       // Update local state
-      setHabits(prevHabits =>
-        prevHabits.map(habit =>
+      setHabits((prevHabits: Habit[]) =>
+        prevHabits.map((habit: Habit) =>
           habit.id === habitId
             ? {
                 ...habit,
@@ -110,6 +126,55 @@ function HabitsScreen() {
     await fetchHabits();
     await fetchDailyTipData();
     setRefreshing(false);
+  };
+
+  const handleGenerateAndSaveHabits = async (goal: string) => {
+    try {
+      setIsGeneratingPlan(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      const plan: HabitPlanItem[] = await generateHabitPlan(goal);
+      if (!Array.isArray(plan) || plan.length === 0) {
+        Alert.alert('No Plan', 'Could not generate a plan. Try a different goal.');
+        return;
+      }
+
+      const results = (await Promise.allSettled(
+        plan.map((item: HabitPlanItem) =>
+          supabase
+            .from('habits')
+            .insert({
+              user_id: user.id,
+              title: item.title,
+              description: item.description,
+              emoji: item.emoji,
+              completed_today: false,
+              streak_count: 0,
+            })
+        )
+      )) as any[];
+
+      const successCount = results.filter((r: any) => r.status === 'fulfilled').length;
+      const failCount = results.length - successCount;
+
+      await fetchHabits();
+
+      if (successCount > 0 && failCount === 0) {
+        Alert.alert('Custom Plan Added', `Added ${successCount} new habits to your list! ✨`);
+      } else if (successCount > 0) {
+        Alert.alert('Partial Success', `Added ${successCount} habits. ${failCount} failed to save.`);
+      } else {
+        Alert.alert('Error', 'Failed to save generated habits.');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Could not generate or save your plan.');
+    } finally {
+      setIsGeneratingPlan(false);
+    }
   };
 
   const handleAddHabit = async (habitData: { title: string; description: string; emoji: string }) => {
@@ -141,7 +206,7 @@ function HabitsScreen() {
 
       if (data) {
         // Add the new habit to the local state
-        setHabits(prevHabits => [data, ...prevHabits]);
+        setHabits((prevHabits: Habit[]) => [data as Habit, ...prevHabits]);
         Alert.alert('Success', 'Habit created successfully! 🎉');
       }
     } catch (error) {
@@ -181,6 +246,9 @@ function HabitsScreen() {
               {completedToday} of {habits.length} completed today
             </Text>
           </View>
+          {isGeneratingPlan && (
+            <ActivityIndicator size="small" color={colors.primary} />
+          )}
         </View>
 
         {/* Daily Focus */}

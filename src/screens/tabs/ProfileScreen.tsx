@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, Image, Alert, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, Image, Alert, TextInput, TouchableOpacity, ActivityIndicator, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, typography, spacing, borderRadius } from '../../theme/tokens';
 import { PrimaryButton } from '../../components/PrimaryButton';
@@ -18,6 +18,9 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [analytics, setAnalytics] = useState<UserAnalytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
+  const [submittingGoal, setSubmittingGoal] = useState(false);
   
   // Profile editing state
   const [displayName, setDisplayName] = useState('');
@@ -265,6 +268,28 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleOpenPlanModal = () => {
+    setGoalInput('');
+    setShowPlanModal(true);
+  };
+
+  const handleSubmitGoal = async () => {
+    const goal = goalInput.trim();
+    if (!goal) {
+      Alert.alert('Goal Required', 'Please enter a short goal to generate a plan.');
+      return;
+    }
+    try {
+      setSubmittingGoal(true);
+      router.push({ pathname: '/tabs/habits', params: { goal } });
+      setShowPlanModal(false);
+    } catch (e) {
+      Alert.alert('Error', 'Could not open the plan generator.');
+    } finally {
+      setSubmittingGoal(false);
+    }
+  };
+
   const totalHabits = habits.length;
   const completedToday = habits.filter(habit => habit.completed_today).length;
 
@@ -483,7 +508,7 @@ export default function ProfileScreen() {
                 <Text style={styles.sectionTitle}>All-Time Best Streak</Text>
                 <View style={styles.streakContainer}>
                   <Text style={styles.streakNumber}>{analytics.allTimeStreak}</Text>
-                  <Text style={styles.streakLabel}>days</Text>
+                  <Text style={styles.streakDaysLabel}>days</Text>
                 </View>
               </View>
 
@@ -565,6 +590,13 @@ export default function ProfileScreen() {
           />
         </GlassCard>
 
+        {/* Custom Plan CTA */}
+        <PrimaryButton
+          title="Get a Custom Plan"
+          onPress={handleOpenPlanModal}
+          style={styles.customPlanButton}
+        />
+
         {/* Sign Out */}
         <PrimaryButton
           title="Sign Out"
@@ -573,6 +605,45 @@ export default function ProfileScreen() {
           style={styles.signOutButton}
         />
       </ScrollView>
+
+      {/* Goal Input Modal */}
+      <Modal
+        visible={showPlanModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowPlanModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>What's your goal?</Text>
+            <Text style={styles.modalSubtitle}>e.g., "I want to bulk up" or "Improve face structure"</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={goalInput}
+              onChangeText={setGoalInput}
+              placeholder="Describe your goal"
+              placeholderTextColor={colors.text.muted}
+              multiline
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancel}
+                onPress={() => setShowPlanModal(false)}
+                disabled={submittingGoal}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalSubmit}
+                onPress={handleSubmitGoal}
+                disabled={submittingGoal}
+              >
+                <Text style={styles.modalSubmitText}>{submittingGoal ? 'Opening…' : 'Generate Plan'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -824,7 +895,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primary,
   },
-  streakLabel: {
+  streakDaysLabel: {
     fontSize: typography.fontSize.base,
     color: colors.text.secondary,
     marginTop: spacing.xs,
@@ -893,8 +964,80 @@ const styles = StyleSheet.create({
   upgradeButton: {
     minWidth: 200,
   },
+  customPlanButton: {
+    marginBottom: spacing.lg,
+  },
   signOutButton: {
     marginBottom: spacing.lg,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: '#00000080',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  modalCard: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
+  },
+  modalTitle: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: '700',
+    color: colors.text.primary,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  modalInput: {
+    backgroundColor: colors.background,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.text.muted + '30',
+    color: colors.text.primary,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    marginBottom: spacing.md,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  modalCancel: {
+    flex: 1,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.text.muted,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    fontWeight: '600',
+  },
+  modalSubmit: {
+    flex: 1,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+  },
+  modalSubmitText: {
+    color: colors.background,
+    fontSize: typography.fontSize.sm,
+    fontWeight: '700',
   },
   loadingContainer: {
     flex: 1,

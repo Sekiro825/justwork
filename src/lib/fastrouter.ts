@@ -8,6 +8,12 @@ export interface DailyTip {
   emoji: string;
 }
 
+export interface HabitPlanItem {
+  title: string;
+  description: string;
+  emoji: string;
+}
+
 const getApiKey = (): string => {
   const apiKey = Constants.expoConfig?.extra?.fastrouterApiKey;
   if (!apiKey || apiKey === 'YOUR_FASTROUTER_API_KEY_HERE') {
@@ -230,4 +236,113 @@ export const testApiConnection = async (): Promise<boolean> => {
     
     return false;
   }
+};
+
+// Generate a plan of 3-5 habits based on a user's goal
+export const generateHabitPlan = async (goal: string): Promise<HabitPlanItem[]> => {
+  try {
+    const openai = getOpenAIClient();
+
+    const response = await openai.chat.completions.create({
+      model: 'anthropic/claude-sonnet-4-20250514',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a friendly Gen Z wellness coach. Create a short plan of micro-habits tailored to a user's goal. 
+Rules:
+- Make each habit specific, action-oriented, and doable in 5 minutes or less.
+- Keep copy concise, positive, and trend-aware.
+- Use inclusive, supportive tone.
+- Return ONLY valid JSON. No extra text.
+
+Response format: an array (length 3-5) of objects with exactly these keys:
+[
+  { "title": string, "description": string, "emoji": string }
+]
+`,
+        },
+        {
+          role: 'user',
+          content: `Goal: "${goal}"
+
+As a wellness coach for Gen Z, generate 3 to 5 micro-habits that best help achieve this goal. Return ONLY a JSON array of objects with keys title, description, emoji.`,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+    });
+
+    const content = response.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      console.warn('Empty habit plan response from AI');
+      return getFallbackPlan(goal);
+    }
+
+    try {
+      const parsed = JSON.parse(content);
+      if (!Array.isArray(parsed)) {
+        console.warn('Habit plan response was not an array');
+        return getFallbackPlan(goal);
+      }
+
+      const normalized: HabitPlanItem[] = parsed
+        .filter(item => item && typeof item === 'object')
+        .map(item => ({
+          title: String(item.title || '').slice(0, 80) || 'Quick Habit',
+          description: String(item.description || '').slice(0, 200) || 'Do a quick positive action to move toward your goal.',
+          emoji: String(item.emoji || '✨'),
+        }))
+        .slice(0, 5);
+
+      if (normalized.length < 3) {
+        return getFallbackPlan(goal);
+      }
+
+      return normalized;
+    } catch (e) {
+      console.warn('Failed to parse habit plan JSON. Using fallback.');
+      return getFallbackPlan(goal);
+    }
+  } catch (error) {
+    console.error('Error generating habit plan:', error);
+    return getFallbackPlan(goal);
+  }
+};
+
+const getFallbackPlan = (goal: string): HabitPlanItem[] => {
+  const base: HabitPlanItem[] = [
+    {
+      title: 'Two-Minute Start',
+      description: 'Spend 2 minutes on one tiny task that supports your goal.',
+      emoji: '⏱️',
+    },
+    {
+      title: 'Hydrate Now',
+      description: 'Drink a glass of water to boost energy and clarity.',
+      emoji: '💧',
+    },
+    {
+      title: 'Gratitude Note',
+      description: 'Write 1 thing you appreciate about your journey.',
+      emoji: '✨',
+    },
+  ];
+
+  // Light tailoring for common goals
+  const g = goal.toLowerCase();
+  if (g.includes('bulk') || g.includes('muscle')) {
+    return [
+      { title: 'Protein Check', description: 'Add a quick protein snack (yogurt, nuts, shake).', emoji: '🥛' },
+      { title: 'Mini Push Set', description: 'Do 10 push-ups or 20 second wall push hold.', emoji: '💪' },
+      { title: 'Hydrate Now', description: 'Drink a glass of water to support performance.', emoji: '💧' },
+    ];
+  }
+  if (g.includes('face') || g.includes('jaw') || g.includes('structure')) {
+    return [
+      { title: 'Posture Reset', description: '1 minute chin tuck and shoulder roll.', emoji: '🧘' },
+      { title: 'Skincare SPF', description: 'Apply sunscreen or moisturizer for skin health.', emoji: '🧴' },
+      { title: 'Hydrate Now', description: 'Sip water for skin and overall glow.', emoji: '💧' },
+    ];
+  }
+  return base;
 };
